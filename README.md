@@ -9,12 +9,17 @@
 - **Local Storage / Session Storage**：按键浏览、搜索、新增、编辑和删除数据。
 - **Cookie**：查看当前页面脚本可访问的 Cookie，并新增、覆盖或删除根路径 Cookie。
 - **IndexedDB**：按数据库和对象仓库浏览记录，新增记录，并以 JSON 编辑和保存可序列化的值。
+- **确认后清理**：可清空当前站点的 Local Storage、Session Storage、可读 Cookie，或所有 IndexedDB 记录；每项操作都会先显示确认提示。
 - **快速查找**：搜索 Storage 键名、Cookie 名称和 IndexedDB 主键。
 - **JSON 预览**：可解析为 JSON 的 Storage 值可切换格式化预览；预览为只读，不会改写原始值。
 
 ### 使用范围
 
-扩展在当前网页上下文中读取数据。浏览器不允许页面脚本读取 `HttpOnly` Cookie，因此这类 Cookie 不会显示；Cookie 管理针对根路径，不覆盖其他 `Path` 范围。IndexedDB 列表最多显示 500 条记录。IndexedDB 编辑器使用 JSON，特殊的非 JSON 结构化克隆值不适合通过文本编辑器往返保存。浏览器内置页面等受限页面无法注入扩展界面。
+扩展在当前网页上下文中读取数据。浏览器不允许页面脚本读取 `HttpOnly` Cookie，因此这类 Cookie 不会显示；Cookie 管理针对根路径，不覆盖其他 `Path` 范围。IndexedDB 列表最多显示 500 条记录。清理操作只作用于当前站点上下文。IndexedDB 编辑器使用 JSON，特殊的非 JSON 结构化克隆值不适合通过文本编辑器往返保存。浏览器内置页面等受限页面无法注入扩展界面。
+
+## Edge Add-ons listing copy (English)
+
+Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases and records. Add, edit, or remove entries, and preview JSON-compatible values in a formatted read-only view. Clear supported site data with an explicit confirmation. HttpOnly cookies and restricted browser pages are not accessible.
 
 ## 浏览器宣传图
 
@@ -26,7 +31,7 @@
 
 ![Browser Storage Inspector for Google Chrome](media/chrome-promo.png)
 
-以上为宣传用概念图，用于展示扩展的存储检查与编辑场景。
+Edge 商店主宣传图：`media/edge-promo.png`（1672 × 941）。商店所需尺寸另见 `media/edge-promo-small.png`（440 × 280）与 `media/edge-promo-large.png`（1400 × 560）。
 
 ## 安装与开发
 

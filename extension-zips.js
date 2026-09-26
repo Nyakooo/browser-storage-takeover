@@ -32,7 +32,7 @@ function bytesToSize(bytes) {
   async function writeZip(fileName, packageDir) {
     // create a file to stream archive data to.
     const output = fs.createWriteStream(path.join(__dirname, 'zip', fileName))
-    const archive = archiver('zip', {
+    const archive = new archiver.ZipArchive({
       zlib: { level: 9 }, // Sets the compression level.
     })
 

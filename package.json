@@ -1,11 +1,11 @@
 {
   "name": "browser-storage-takeover",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "packageManager": "pnpm@12.6.0",
   "engines": {
     "node": ">=20.19.0"
   },
-  "description": "",
+  "description": "Inspect and edit Local Storage, Session Storage, Cookies, and IndexedDB for the site in your current tab.",
   "scripts": {
     "dev": "pnpm -C ./packages/shell-components dev",
     "build": "run-s build:all pkg",
