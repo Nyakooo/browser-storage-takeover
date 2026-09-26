@@ -33,6 +33,10 @@ Inspect and manage the storage used by the site in your current tab. Browse and 
 
 扩展只在当前网页上下文中读取和写入数据，不会将网站存储内容发送到开发者服务器。为支持用户在任意网站上主动检查当前站点，扩展会请求网站访问权限。受浏览器限制，页面脚本无法读取 `HttpOnly` Cookie；Cookie 管理针对根路径；IndexedDB 最多显示 500 条记录，非 JSON 特殊值不适合通过文本编辑器保存。浏览器内置页面等受限页面无法使用扩展面板。
 
+## Privacy
+
+扩展在当前网页上下文中读取和写入网站存储，不会将这些数据发送给开发者或开发者运营的服务器。完整说明见[隐私政策](PRIVACY.md)。
+
 ## 浏览器宣传图
 
 ### Microsoft Edge
