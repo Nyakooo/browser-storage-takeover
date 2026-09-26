@@ -19,7 +19,7 @@
 
 ## Edge Add-ons listing copy (English)
 
-Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases and records. Add, edit, or remove entries, and preview JSON-compatible values in a formatted read-only view. Clear supported site data with an explicit confirmation. HttpOnly cookies and restricted browser pages are not accessible.
+Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases, object stores, and records. Add, edit, and remove supported entries from the storage panel. Preview JSON-compatible IndexedDB values in a formatted read-only view, then save supported changes with clear controls. Clear Local Storage, Session Storage, readable Cookies, or IndexedDB data only after an explicit confirmation. Cookie access is limited by browser rules: HttpOnly cookies and cookies outside the supported path are not shown. IndexedDB lists up to 500 records per store, and special structured-clone values that cannot be represented as JSON may not round-trip through the editor. Restricted browser pages cannot be accessed.
 
 ## 浏览器宣传图
 
@@ -32,6 +32,10 @@ Inspect and manage the storage used by the site in your current tab. Browse and 
 ![Browser Storage Inspector for Google Chrome](media/chrome-promo.png)
 
 Edge 商店主宣传图：`media/edge-promo.png`（1672 × 941）。商店所需尺寸另见 `media/edge-promo-small.png`（440 × 280）与 `media/edge-promo-large.png`（1400 × 560）。
+
+Edge 商店图标：`media/300.png`（300 × 300）。商店截图：`media/edge-screenshot.png`（1280 × 800）。
+
+![Browser Storage Inspector for Microsoft Edge](media/edge-screenshot.png)
 
 ## 安装与开发
 
