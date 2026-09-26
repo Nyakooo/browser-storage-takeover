@@ -19,7 +19,7 @@
 
 ## Edge Add-ons listing copy (English)
 
-Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases and records. Add, edit, or remove entries, and preview JSON-compatible values in a formatted read-only view. Clear supported site data with an explicit confirmation. Data stays in the current page context and is not sent to a developer server. HttpOnly cookies and restricted browser pages are not accessible.
+Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases, object stores, and records. Add, edit, and remove supported entries from the storage panel. Preview JSON-compatible values in a formatted read-only view, then save supported changes with clear controls. Clear Local Storage, Session Storage, readable Cookies, or IndexedDB data only after an explicit confirmation. Data stays in the current page context and is not sent to a developer server. HttpOnly cookies and cookies outside the supported path are not shown. IndexedDB lists up to 500 records per store, and special structured-clone values that cannot be represented as JSON may not round-trip through the editor. Restricted browser pages cannot be accessed.
 
 ## Chrome Web Store listing copy
 
@@ -44,6 +44,10 @@ Inspect and manage the storage used by the site in your current tab. Browse and 
 ![Browser Storage Inspector for Google Chrome](media/chrome/promo-top.png)
 
 Chrome 商店素材独立放在 `media/chrome/`：功能界面图 `screenshot-1.png`（1280 × 800）、小型宣传图 `promo-small.png`（440 × 280）、顶部宣传图 `promo-top.png`（1400 × 560）和图标 `icon-128.png`。界面图使用虚构示例数据。Edge 商店素材保留在 `media/` 根目录：`edge-promo-small.png`（440 × 280）与 `edge-promo-large.png`（1400 × 560）。
+
+Edge 商店图标：`media/300.png`（300 × 300）。商店截图：`media/edge-screenshot.png`（1280 × 800）。
+
+![Browser Storage Inspector for Microsoft Edge](media/edge-screenshot.png)
 
 ## 安装与开发
 
