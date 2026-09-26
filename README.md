@@ -4,6 +4,11 @@
 
 ![Browser Storage Inspector for Chrome](media/chrome/promo-top.png)
 
+## 商店链接
+
+- [Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/kiikpnkjmmiaoinieohjgkgmmndgkjlp)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/empty-title/dlpdpjghidlefnhlmkdobdaghjjnekpn)
+
 ## 功能
 
 - **Local Storage / Session Storage**：按键浏览、搜索、新增、编辑和删除数据。
