@@ -25,7 +25,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      'process.env': {},
+      'process.env': '{}',
+      'process.env.NODE_ENV': JSON.stringify(mode),
       __DEV__: mode === 'development'
     },
     plugins: [vue()]

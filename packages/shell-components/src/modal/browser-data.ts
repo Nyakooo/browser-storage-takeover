@@ -39,6 +39,53 @@ export function deleteCookie(name: string) {
   document.cookie = `${encodeURIComponent(name)}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
 }
 
+export function clearReadableCookies() {
+  const names = [...new Set(readCookies().map((cookie) => cookie.name))];
+  const paths = new Set(["/"]);
+  const segments = location.pathname.split("/").filter(Boolean);
+  let path = "";
+  for (const segment of segments) {
+    path += `/${segment}`;
+    paths.add(`${path}/`);
+    paths.add(path);
+  }
+  const hostParts = location.hostname.split(".");
+  const domains = hostParts.map((_, index) => hostParts.slice(index).join(".")).filter(Boolean);
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+
+  for (const name of names) {
+    for (const cookiePath of paths) {
+      document.cookie = `${encodeURIComponent(name)}=; Path=${cookiePath}; Max-Age=0; SameSite=Lax${secure}`;
+      for (const domain of domains) {
+        document.cookie = `${encodeURIComponent(name)}=; Path=${cookiePath}; Domain=${domain}; Max-Age=0; SameSite=Lax${secure}`;
+      }
+    }
+  }
+  return names.length;
+}
+
+export async function clearAllIndexedDBRecords(): Promise<number> {
+  if (!indexedDB.databases) throw new Error("This browser cannot enumerate IndexedDB databases");
+  const databases = (await indexedDB.databases()).filter((database) => database.name);
+  let clearedStores = 0;
+
+  for (const database of databases) {
+    const connection = await openDatabase(database.name!);
+    try {
+      const storeNames = Array.from(connection.objectStoreNames);
+      if (!storeNames.length) continue;
+      const transaction = connection.transaction(storeNames, "readwrite");
+      for (const storeName of storeNames) transaction.objectStore(storeName).clear();
+      await transactionDone(transaction);
+      clearedStores += storeNames.length;
+    } finally {
+      connection.close();
+    }
+  }
+
+  return clearedStores;
+}
+
 export async function listDatabases(): Promise<DatabaseInfo[]> {
   if (!indexedDB.databases) return [];
   const databases = await indexedDB.databases();

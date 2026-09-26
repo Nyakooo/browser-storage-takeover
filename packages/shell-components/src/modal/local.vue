@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import {
   addStoreRecord,
+  clearAllIndexedDBRecords,
+  clearReadableCookies,
   DatabaseInfo,
   DatabaseRecord,
   deleteCookie,
@@ -152,7 +154,11 @@ async function refreshRecords() {
   try {
     records.value = await readStore(selectedDatabase.value, selectedStore.value);
     if (records.value.length) selectRecord(records.value[0]);
-    else editorValue.value = "";
+    else {
+      selectedKey.value = "";
+      editorValue.value = "";
+      originalValue.value = "";
+    }
   } catch (error) {
     databaseError.value = error instanceof Error ? error.message : "Could not read this object store";
   }
@@ -266,6 +272,37 @@ function refresh() {
   else void refreshDatabases();
 }
 
+async function clearCurrentEnvironment() {
+  if (busy.value) return;
+  const label = activeTitle.value;
+  const confirmation = activePanel.value === "indexeddb"
+    ? `Clear all records from every IndexedDB database on ${siteHost}? This cannot be undone.`
+    : `Clear all ${label} data for ${siteHost}? This cannot be undone.`;
+  if (!window.confirm(confirmation)) return;
+
+  if (activePanel.value === "local" || activePanel.value === "session") {
+    currentStorage.value.clear();
+    refreshStorage();
+    flash(`${label} cleared`);
+  } else if (activePanel.value === "cookies") {
+    const cleared = clearReadableCookies();
+    refreshCookies();
+    flash(`${cleared} readable cookie${cleared === 1 ? "" : "s"} cleared`);
+  } else {
+    busy.value = true;
+    databaseError.value = "";
+    try {
+      const clearedStores = await clearAllIndexedDBRecords();
+      await refreshDatabases();
+      flash(`IndexedDB cleared (${clearedStores} stores)`);
+    } catch (error) {
+      databaseError.value = error instanceof Error ? error.message : String(error);
+    } finally {
+      busy.value = false;
+    }
+  }
+}
+
 watch(activePanel, () => { searchText.value = ""; });
 watch([selectedDatabase, selectedStore], () => { if (activePanel.value === "indexeddb") void refreshRecords(); });
 onMounted(refreshStorage);
@@ -295,6 +332,7 @@ onMounted(refreshStorage);
         <div class="toolbar-actions">
           <input v-model="searchText" class="input search" placeholder="Filter keys…" aria-label="Filter keys" />
           <button class="action-button" @click="refresh">Refresh</button>
+          <button class="action-button danger" :disabled="busy || (activePanel === 'local' && !localCount) || (activePanel === 'session' && !sessionCount) || (activePanel === 'cookies' && !cookies.length) || (activePanel === 'indexeddb' && !databases.length)" @click="clearCurrentEnvironment">Clear all</button>
         </div>
       </header>
 
@@ -365,7 +403,7 @@ onMounted(refreshStorage);
           <template v-else>
             <div v-if="databaseError" class="error-banner">{{ databaseError }}</div>
             <div v-if="selectedRecord || isNewRecord" class="editor-content">
-              <div class="editor-top"><div><div class="mini-label">{{ selectedStore }} · {{ isNewRecord ? 'NEW RECORD' : 'RECORD' }}</div><h2 class="key-heading">{{ isNewRecord ? 'Add a record' : selectedRecord?.keyText }}</h2></div><div class="editor-actions"><button v-if="isNewRecord" class="action-button plain" @click="cancelNewRecord">Cancel</button><template v-else-if="!jsonView"><button class="action-button danger plain" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="!hasUnsavedChanges" @click="saveCurrent">Save JSON</button></template></div></div>
+              <div class="editor-top"><div><div class="mini-label">{{ selectedStore }} · {{ isNewRecord ? 'NEW RECORD' : 'RECORD' }}</div><h2 class="key-heading">{{ isNewRecord ? 'Add a record' : selectedRecord?.keyText }}</h2></div><div class="editor-actions"><template v-if="isNewRecord"><button class="action-button plain" @click="cancelNewRecord">Cancel</button><button class="action-button primary" :disabled="busy" @click="createRecord">Add record</button></template><template v-else-if="!jsonView"><button class="action-button danger plain" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="!hasUnsavedChanges" @click="saveCurrent">Save JSON</button></template></div></div>
               <div v-if="isNewRecord" class="key-input"><label for="record-key">Primary key <span>Optional for auto-increment stores</span></label><input id="record-key" v-model="newRecordKey" class="input" placeholder="Leave blank to auto-generate" /></div>
               <div class="editor-body"><div class="field-label">VALUE <span>JSON / structured clone</span><button v-if="canFormatJson && !isNewRecord" class="format-toggle" @click="jsonView = !jsonView">{{ jsonView ? 'Edit raw value' : 'Format JSON' }}</button></div><pre v-if="jsonView" class="json-preview">{{ formattedJson }}</pre><textarea v-else v-model="editorValue" class="input value-editor code-editor" rows="15" /></div>
               <div class="editor-hint">{{ isNewRecord ? 'Values must be valid JSON. ' : 'Record changes are written directly to ' }}<strong>{{ selectedDatabase }} / {{ selectedStore }}</strong>.</div>

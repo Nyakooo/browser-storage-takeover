@@ -2,11 +2,22 @@ import { NoticeKey } from "@takeover/shared-utils";
 
 function createModal() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id)
-            chrome.tabs.sendMessage(tabs[0].id, {
+        const tab = tabs[0];
+        if (tab?.id) {
+            chrome.tabs.sendMessage(tab.id, {
                 to: "content",
                 type: NoticeKey.COMMAND_TRIGGERING
-            }).catch(err => { })
+            }).then(() => {
+                chrome.action.setBadgeText({ tabId: tab.id, text: "" });
+                chrome.action.setTitle({ tabId: tab.id, title: "Takeover browser storage" });
+            }).catch(() => {
+                // A visible badge helps distinguish an unsupported/restricted page
+                // from a toolbar click that was silently ignored.
+                chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: "#b54747" });
+                chrome.action.setBadgeText({ tabId: tab.id, text: "!" });
+                chrome.action.setTitle({ tabId: tab.id, title: "无法连接当前页面；请在普通网页刷新后重试" });
+            });
+        }
     })
 }
 
