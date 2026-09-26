@@ -20,9 +20,6 @@
     "64": "icons/64.png",
     "128": "icons/128.png"
   },
-  "permissions": [
-    "storage"
-  ],
   "host_permissions": [
     "<all_urls>"
   ],

@@ -15,10 +15,10 @@
     "@takeover/shared-utils": "workspace:^1.0.0"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.197",
-    "copy-webpack-plugin": "^11.0.0",
-    "ts-loader": "^9.4.1",
-    "webpack": "^5.74.0",
-    "webpack-cli": "^4.10.0"
+    "@types/chrome": "^0.3.0",
+    "copy-webpack-plugin": "^14.0.0",
+    "ts-loader": "^9.6.2",
+    "webpack": "^5.111.1",
+    "webpack-cli": "^7.2.3"
   }
 }

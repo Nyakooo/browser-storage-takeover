@@ -6,8 +6,8 @@
   "main": "lib/index.js",
   "types": "types/index.d.ts",
   "devDependencies": {
-    "@types/chrome": "^0.0.197",
-    "@types/node": "^18.0.1"
+    "@types/chrome": "^0.3.0",
+    "@types/node": "^24.0.0"
   },
   "scripts": {
     "watch": "tsc -w",

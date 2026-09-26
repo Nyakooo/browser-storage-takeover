@@ -1,5 +1,4 @@
 const fs = require('fs')
-const inquirer = require('inquirer')
 const semver = require('semver')
 const pkg = require('./package.json')
 const manifest = require('./packages/shell-chrome/manifest.json')
@@ -7,11 +6,10 @@ const manifest = require('./packages/shell-chrome/manifest.json')
 const curVersion = pkg.version
 
 ;(async () => {
-  const { newVersion } = await inquirer.prompt([{
-      type: 'input',
-      name: 'newVersion',
-      message: `Please provide a version (current: ${curVersion}):`,
-    }])
+  const { input, confirm } = await import('@inquirer/prompts')
+  const newVersion = await input({
+    message: `Please provide a version (current: ${curVersion}):`,
+  })
 
   if (!semver.valid(newVersion)) {
     console.error(`Invalid version: ${newVersion}`)
@@ -23,11 +21,7 @@ const curVersion = pkg.version
     process.exit(1)
   }
 
-  const { yes } = await inquirer.prompt([{
-      name: 'yes',
-      message: `Release ${newVersion}?`,
-      type: 'confirm',
-    }])
+  const yes = await confirm({ message: `Release ${newVersion}?` })
 
   if (yes) {
     pkg.version = newVersion
