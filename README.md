@@ -12,35 +12,43 @@
 ## 功能
 
 - **Local Storage / Session Storage**：按键浏览、搜索、新增、编辑和删除数据。
-- **Cookie**：查看当前页面脚本可访问的 Cookie，并新增、覆盖或删除根路径 Cookie。
-- **IndexedDB**：按数据库和对象仓库浏览记录，新增记录，并以 JSON 编辑和保存可序列化的值。
-- **确认后清理**：可清空当前站点的 Local Storage、Session Storage、可读 Cookie，或所有 IndexedDB 记录；每项操作都会先显示确认提示。
+- **Cookie**：通过扩展 API 查看 HttpOnly、Secure、不同路径和分区 Cookie；按域、路径、名称和分区区分同名条目，编辑时保留原属性，支持精确删除和按选定主机清理。
+- **IndexedDB**：按数据库和对象仓库分页浏览全部记录（每页 500 条），新增、删除记录，以 JSON 编辑兼容值；Date、Blob、Map、循环引用等非 JSON 值只读，避免保存时损坏。支持 Date、二进制和复合主键，编辑时禁止意外修改主键。
+- **确认后清理**：可清空当前站点的 Local Storage、Session Storage、匹配选定主机的 Cookie，或所有 IndexedDB 记录；每项操作都会先显示确认提示。
 - **快速查找**：搜索 Storage 键名、Cookie 名称和 IndexedDB 主键。
 - **JSON 预览**：可解析为 JSON 的 Storage 值可切换格式化预览；预览为只读，不会改写原始值。
 
 ### 使用范围
 
-扩展在当前网页上下文中读取数据。浏览器不允许页面脚本读取 `HttpOnly` Cookie，因此这类 Cookie 不会显示；Cookie 管理针对根路径，不覆盖其他 `Path` 范围。IndexedDB 列表最多显示 500 条记录。清理操作只作用于当前站点上下文。IndexedDB 编辑器使用 JSON，特殊的非 JSON 结构化克隆值不适合通过文本编辑器往返保存。浏览器内置页面等受限页面无法注入扩展界面。
+扩展面板运行在隔离世界，使用封闭 Shadow DOM 隔离样式与界面；不再向网页主世界注入管理脚本或开放特权事件桥。Cookie 通过后台扩展 API 处理，网页不能直接调用该管理接口。最低支持 Chrome / Edge 132。
 
-## Edge Add-ons listing copy (English)
+### 多域名、iframe 与数据范围
 
-Inspect and manage the storage used by the site in your current tab. Browse and search Local Storage, Session Storage, page-readable Cookies, and IndexedDB databases, object stores, and records. Add, edit, and remove supported entries from the storage panel. Preview JSON-compatible values in a formatted read-only view, then save supported changes with clear controls. Clear Local Storage, Session Storage, readable Cookies, or IndexedDB data only after an explicit confirmation. Data stays in the current page context and is not sent to a developer server. HttpOnly cookies and cookies outside the supported path are not shown. IndexedDB lists up to 500 records per store, and special structured-clone values that cannot be represented as JSON may not round-trip through the editor. Restricted browser pages cannot be accessed.
+面板顶部的 **FRAME / ORIGIN** 选择器列出当前标签页的 HTTP(S) 顶层页面和 iframe；选择后，所有数据操作都绑定该 frame。新增或导航后的 iframe 可点击 **Reload frames** 更新列表。切换前会提示放弃未保存的修改；frame 已跨 origin 导航时，旧请求会被拒绝，防止误写其他站点。
 
-## Chrome Web Store listing copy
+| 数据 | 隔离与操作范围 |
+| --- | --- |
+| Local Storage / IndexedDB | 按 origin（协议、主机、端口）和浏览器存储分区隔离；在选定 frame 的实际上下文执行 |
+| Session Storage | 在选定标签页、frame 的实际会话上下文执行，同 origin 的其他标签页不会被清理 |
+| Cookie | 按主机匹配 host-only 与适用的父域 Cookie，不限制当前 URL 路径；显示所有可访问分区，并保留 storeId、partitionKey |
 
-在当前网页中检查和编辑网站存储数据，适合前端开发与调试。点击扩展图标或使用 `Alt+W` 打开面板。
+例如，`app.example.com`、`api.example.com`、`https://app.example.com:8443` 的 Web Storage 分开管理。`.example.com` Cookie 可以被多个子域共享，修改或清理它会影响其他适用子域；确认框会明确提示这一点。Cookie 不按端口隔离。隐私窗口使用该标签页对应的 Cookie store，需要在浏览器设置中允许扩展在隐私窗口运行。
 
-- 浏览、搜索、新增、编辑、删除和清空当前网站的 Local Storage 与 Session Storage。
-- 查看和管理页面脚本可读取的 Cookie，也可清空当前网站可读取的 Cookie。
-- 按数据库和对象仓库浏览 IndexedDB 记录，新增、编辑、删除记录，或清空当前网站的 IndexedDB 数据。
-- 对可解析为 JSON 的 Storage 值提供只读格式化预览。
-- 清空操作会先显示确认提示。
+当前标签页没有加载的域名，请打开目标网站的标签页后操作；不会扫描或清理全部浏览器域名。受限浏览器页面、没有授权的网站，以及浏览器未提供可注入上下文的 frame 无法访问。浏览器的第三方存储限制仍然有效，不会绕过存储分区。`about:blank`、`srcdoc`、`data:` 等非 HTTP(S) frame 暂不列入选择器。
 
-扩展只在当前网页上下文中读取和写入数据，不会将网站存储内容发送到开发者服务器。为支持用户在任意网站上主动检查当前站点，扩展会请求网站访问权限。受浏览器限制，页面脚本无法读取 `HttpOnly` Cookie；Cookie 管理针对根路径；IndexedDB 最多显示 500 条记录，非 JSON 特殊值不适合通过文本编辑器保存。浏览器内置页面等受限页面无法使用扩展面板。
+Cookie 值保持原始编码，不自动 URI 解码。新增 Cookie 使用选定 frame 的主机和指定路径；编辑已有 Cookie 保留 domain、path、HttpOnly、Secure、SameSite、过期时间及分区。清理只删除已显示范围中的匹配项；跨多个数据库或 Cookie 的批量清理不具备整体回滚能力，失败时可能已清理部分数据。IndexedDB 搜索作用于当前页，使用 Previous / Next 500 浏览后续记录。
 
 ## Privacy
 
 扩展在当前网页上下文中读取和写入网站存储，不会将这些数据发送给开发者或开发者运营的服务器。完整说明见[隐私政策](PRIVACY.md)。
+
+## Logo 与扩展图标
+
+新版 Logo 使用深蓝底色、白色存储堆栈和浅蓝色放大镜。扩展工具栏提供 16 / 24 / 32 px 图标，扩展管理页提供 48 / 64 / 128 px 图标，面板内品牌标志与四类存储导航图标也已统一更新。
+
+![Browser Storage Inspector logo](media/brand/logo.png)
+
+原始设计稿、尺寸说明与生成提示词见 [Logo 资源说明](media/brand/README.md)。
 
 ## 浏览器宣传图
 
@@ -66,9 +74,24 @@ Edge 商店图标：`media/300.png`（300 × 300）。商店截图：`media/edge
 pnpm install
 pnpm dev
 pnpm build
+pnpm test
 ```
 
-构建后，在 Chrome 或 Edge 的扩展管理页面打开**开发者模式**，选择**加载解压缩的扩展**，并选择 `packages/shell-chrome/build` 目录。
+`pnpm dev` 用于界面开发预览；真实存储操作需要在加载后的扩展中验证。构建后，在 Chrome 或 Edge 的扩展管理页面打开**开发者模式**，选择**加载解压缩的扩展**，并选择 `packages/shell-chrome/build` 目录。
+
+## 浏览器回归验证
+
+`tests/browser.mjs` 使用 Playwright 启动独立的临时 Chromium 配置和本地 HTTPS 虚构数据站点，覆盖严格 CSP、面板重开、HttpOnly / Path / 分区 Cookie、跨域 frame、写回和 IndexedDB 主键 / 分页。不会读取日常浏览器配置。
+
+```sh
+pnpm build
+# 需要 openssl；首次运行安装测试浏览器
+pnpm exec playwright install chromium
+pnpm test:browser
+# 使用已有 Playwright 安装时，可通过 PLAYWRIGHT_MODULE 指定其绝对模块路径
+```
+
+`cookies` 权限用于完整 Cookie 管理，`webNavigation` 用于枚举当前标签页的 frame。更新已有扩展后可能需要重新确认新增权限并刷新目标网页。
 
 ## License
 

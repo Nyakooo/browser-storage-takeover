@@ -1,6 +1,6 @@
 {
   "name": "browser-storage-takeover",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "packageManager": "pnpm@12.6.0",
   "engines": {
     "node": ">=20.19.0"
@@ -12,15 +12,18 @@
     "build:all": "pnpm -F \"./packages/**\" build",
     "pkg": "cp -r ./packages/shell-components/dist ./packages/shell-chrome/build/components",
     "zip": "node ./extension-zips.js",
-    "preinstall": "npx only-allow pnpm"
+    "preinstall": "npx only-allow pnpm",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tests/browser.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "archiver": "^8.0.0",
     "@inquirer/prompts": "^8.7.2",
+    "archiver": "^8.0.0",
     "npm-run-all": "^4.1.5",
+    "playwright": "1.62.1",
     "progress": "^2.0.3",
     "readdir-glob": "^1.1.2",
     "rimraf": "^6.1.3",

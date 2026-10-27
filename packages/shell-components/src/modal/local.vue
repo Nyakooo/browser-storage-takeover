@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
+import UiIcon from "../components/UiIcon.vue";
 import {
   addStoreRecord,
+  addCookie, readStorage, writeStorage, removeStorage, clearStorage, listFrames, setFrame,
+  type CookieEntry, type Frame,
   clearAllIndexedDBRecords,
-  clearReadableCookies,
+  clearHostCookies,
   DatabaseInfo,
   DatabaseRecord,
   deleteCookie,
@@ -16,18 +19,18 @@ import {
 } from "./browser-data";
 
 type Panel = "local" | "session" | "cookies" | "indexeddb";
-const panels: { id: Panel; label: string; mark: string }[] = [
-  { id: "local", label: "Local storage", mark: "L" },
-  { id: "session", label: "Session storage", mark: "S" },
-  { id: "cookies", label: "Cookies", mark: "C" },
-  { id: "indexeddb", label: "IndexedDB", mark: "I" },
+const panels: { id: Panel; label: string }[] = [
+  { id: "local", label: "Local storage" },
+  { id: "session", label: "Session storage" },
+  { id: "cookies", label: "Cookies" },
+  { id: "indexeddb", label: "IndexedDB" },
 ];
 const activePanel = ref<Panel>("local");
 const searchText = ref("");
 const localEntries = ref<{ key: string; value: string }[]>([]);
-const localCount = ref(localStorage.length);
-const sessionCount = ref(sessionStorage.length);
-const cookies = ref(readCookies());
+const localCount = ref(0);
+const sessionCount = ref(0);
+const cookies = ref<CookieEntry[]>([]);
 const databases = ref<DatabaseInfo[]>([]);
 const selectedDatabase = ref("");
 const selectedStore = ref("");
@@ -44,22 +47,32 @@ const previousRecordKey = ref("");
 const isNewRecord = ref(false);
 const busy = ref(false);
 const notice = ref("");
-const databaseError = ref("");
-const siteHost = location.hostname;
+const operationError = ref("");
+const frames = ref<Frame[]>([]);
+const selectedFrame = ref(0);
+const siteHost = computed(() => new URL(frames.value.find(frame => frame.frameId === selectedFrame.value)?.url ?? location.href).hostname);
+const siteOrigin = computed(() => new URL(frames.value.find(frame => frame.frameId === selectedFrame.value)?.url ?? location.href).origin);
+const cookiePath = ref('/');
+const cookieSecure = computed(() => new URL(frames.value.find(frame => frame.frameId === selectedFrame.value)?.url ?? location.href).protocol === 'https:');
+const recordPage = ref(0);
+const hasMore = ref(false);
+let generation = 0;
+let cookieGeneration = 0;
+let storageGeneration = 0;
 const hasIndexedDB = typeof indexedDB.databases === "function";
 
-const currentStorage = computed(() => activePanel.value === "session" ? sessionStorage : localStorage);
+
 const storageEntries = computed(() => localEntries.value.filter((entry) => entry.key.toLowerCase().includes(searchText.value.toLowerCase())));
-const visibleCookies = computed(() => cookies.value.filter((entry) => entry.name.toLowerCase().includes(searchText.value.toLowerCase())));
+const visibleCookies = computed(() => cookies.value.filter((entry) => `${entry.name} ${entry.domain} ${entry.path}`.toLowerCase().includes(searchText.value.toLowerCase())));
 const visibleRecords = computed(() => {
   const query = searchText.value.toLowerCase();
-  return records.value.filter((entry: DatabaseRecord) => entry.keyText.toLowerCase().includes(query));
+  return records.value.slice(0, 500).filter((entry: DatabaseRecord) => entry.keyText.toLowerCase().includes(query));
 });
 const stores = computed(() => databases.value.find((db) => db.name === selectedDatabase.value)?.stores ?? []);
 const databaseOptions = computed(() => databases.value.map((db) => ({ label: `${db.name}  ·  v${db.version}`, value: db.name })));
 const storeOptions = computed(() => stores.value.map((store) => ({ label: store, value: store })));
 const activeTitle = computed(() => panels.find((panel) => panel.id === activePanel.value)?.label ?? "Storage");
-const selectedCookie = computed(() => cookies.value.find((cookie) => cookie.name === selectedKey.value));
+const selectedCookie = computed(() => cookies.value.find((cookie) => cookie.id === selectedKey.value));
 const selectedRecord = computed(() => records.value.find((record) => record.keyText === selectedKey.value));
 const formattedJson = computed(() => {
   try { return JSON.stringify(JSON.parse(editorValue.value), null, 2); }
@@ -68,14 +81,28 @@ const formattedJson = computed(() => {
 const canFormatJson = computed(() => formattedJson.value !== "");
 const hasUnsavedChanges = computed(() => editorValue.value !== originalValue.value || isNewRecord.value);
 
-function refreshStorage() {
-  localCount.value = localStorage.length;
-  sessionCount.value = sessionStorage.length;
-  localEntries.value = Object.keys(currentStorage.value).sort().map((key) => ({ key, value: currentStorage.value.getItem(key) ?? "" }));
-  if (!localEntries.value.some((entry) => entry.key === selectedKey.value)) selectEntry(localEntries.value[0]?.key ?? "");
-  else selectEntry(selectedKey.value);
+async function refreshStorage() {
+  const request = ++storageGeneration;
+  try {
+    const snapshot = await readStorage(activePanel.value);
+    if (request !== storageGeneration) return;
+    localCount.value = snapshot.localCount;
+    sessionCount.value = snapshot.sessionCount;
+    localEntries.value = snapshot.entries;
+    selectEntry(localEntries.value.some(entry => entry.key === selectedKey.value) ? selectedKey.value : localEntries.value[0]?.key ?? '');
+  } catch (error) { if (request === storageGeneration) { localEntries.value = []; report(error); } }
 }
-
+function report(error: unknown) { operationError.value = error instanceof Error ? error.message : String(error); }
+async function perform(action: () => Promise<unknown>) {
+  if (busy.value) return;
+  busy.value = true;
+  operationError.value = '';
+  try { await action(); } catch (error) { report(error); } finally { busy.value = false; }
+}
+function discardChanges() {
+  if (busy.value) return false;
+  return !hasUnsavedChanges.value || window.confirm('Discard unsaved changes?');
+}
 function selectEntry(key: string) {
   jsonView.value = false;
   selectedKey.value = key;
@@ -84,10 +111,10 @@ function selectEntry(key: string) {
   originalValue.value = editorValue.value;
 }
 
-function selectCookie(name: string) {
+function selectCookie(id: string) {
   jsonView.value = false;
-  selectedKey.value = name;
-  editorValue.value = cookies.value.find((cookie) => cookie.name === name)?.value ?? "";
+  selectedKey.value = id;
+  editorValue.value = cookies.value.find((cookie) => cookie.id === id)?.value ?? "";
   originalValue.value = editorValue.value;
 }
 
@@ -95,7 +122,7 @@ function selectRecord(record: DatabaseRecord) {
   jsonView.value = false;
   isNewRecord.value = false;
   selectedKey.value = record.keyText;
-  editorValue.value = pretty(record.value);
+  editorValue.value = record.editable === false ? String(record.value) : pretty(record.value);
   originalValue.value = editorValue.value;
 }
 
@@ -110,29 +137,39 @@ function flash(message: string) {
 }
 
 function switchPanel(panel: Panel) {
+  if (busy.value || !discardChanges()) return;
+  generation++; cookieGeneration++; storageGeneration++;
+  operationError.value = "";
   activePanel.value = panel;
   searchText.value = "";
   jsonView.value = false;
   isNewRecord.value = false;
   selectedKey.value = "";
   editorValue.value = "";
+  originalValue.value = "";
+  recordPage.value = 0;
   notice.value = "";
   if (panel === "local" || panel === "session") refreshStorage();
   if (panel === "cookies") refreshCookies();
   if (panel === "indexeddb") void refreshDatabases();
 }
 
-function refreshCookies() {
-  cookies.value = readCookies().sort((a, b) => a.name.localeCompare(b.name));
-  if (!cookies.value.some((cookie) => cookie.name === selectedKey.value)) selectCookie(cookies.value[0]?.name ?? "");
-  else selectCookie(selectedKey.value);
-}
-
-async function refreshDatabases() {
-  busy.value = true;
-  databaseError.value = "";
+async function refreshCookies() {
+  const request = ++cookieGeneration;
   try {
-    databases.value = await listDatabases();
+    const result = await readCookies(siteHost.value);
+    if (request !== cookieGeneration) return;
+    cookies.value = result.sort((a, b) => a.name.localeCompare(b.name) || a.domain.localeCompare(b.domain) || a.path.localeCompare(b.path));
+    selectCookie(cookies.value.some(cookie => cookie.id === selectedKey.value) ? selectedKey.value : cookies.value[0]?.id ?? '');
+  } catch (error) { if (request === cookieGeneration) { cookies.value = []; report(error); } }
+}
+async function refreshDatabases() {
+  const request = ++generation;
+  operationError.value = "";
+  try {
+    const result = await listDatabases();
+    if (request !== generation) return;
+    databases.value = result;
     if (!databases.value.some((db) => db.name === selectedDatabase.value)) {
       selectedDatabase.value = databases.value[0]?.name ?? "";
       selectedStore.value = stores.value[0] ?? "";
@@ -140,19 +177,27 @@ async function refreshDatabases() {
     if (!stores.value.includes(selectedStore.value)) selectedStore.value = stores.value[0] ?? "";
     await refreshRecords();
   } catch (error) {
-    databaseError.value = error instanceof Error ? error.message : "Could not read IndexedDB";
+    if (request !== generation) return;
+    operationError.value = error instanceof Error ? error.message : "Could not read IndexedDB";
     records.value = [];
-  } finally {
-    busy.value = false;
   }
 }
 
 async function refreshRecords() {
+  const request = ++generation;
+  const database = selectedDatabase.value, store = selectedStore.value;
+  records.value = [];
+  hasMore.value = false;
+  editorValue.value = originalValue.value = "";
+  operationError.value = "";
   isNewRecord.value = false;
   selectedKey.value = "";
   if (!selectedDatabase.value || !selectedStore.value) { records.value = []; editorValue.value = ""; return; }
   try {
-    records.value = await readStore(selectedDatabase.value, selectedStore.value);
+    const result = await readStore(database, store, recordPage.value * 500);
+    if (request !== generation) return;
+    records.value = result;
+    hasMore.value = result.length > 500;
     if (records.value.length) selectRecord(records.value[0]);
     else {
       selectedKey.value = "";
@@ -160,72 +205,66 @@ async function refreshRecords() {
       originalValue.value = "";
     }
   } catch (error) {
-    databaseError.value = error instanceof Error ? error.message : "Could not read this object store";
+    if (request !== generation) return;
+    operationError.value = error instanceof Error ? error.message : "Could not read this object store";
   }
 }
 
 function saveCurrent() {
-  if ((activePanel.value === "local" || activePanel.value === "session") && selectedKey.value) {
-    currentStorage.value.setItem(selectedKey.value, editorValue.value);
-    originalValue.value = editorValue.value;
-    refreshStorage();
-    flash("Saved to this site");
-  } else if (activePanel.value === "cookies" && selectedCookie.value) {
-    writeCookie(selectedCookie.value.name, editorValue.value);
-    originalValue.value = editorValue.value;
-    refreshCookies();
-    flash("Cookie updated");
-  } else if (activePanel.value === "indexeddb" && selectedRecord.value) {
-    try {
-      const value = JSON.parse(editorValue.value);
-      void writeStoreRecord(selectedDatabase.value, selectedStore.value, { ...selectedRecord.value, value })
-        .then(() => refreshRecords()).then(() => flash("Record saved"))
-        .catch((error) => { databaseError.value = String(error); });
-    } catch { databaseError.value = "Enter valid JSON before saving this record"; }
-  }
+  void perform(async () => {
+    if (activePanel.value === 'local' || activePanel.value === 'session') {
+      await writeStorage(activePanel.value, selectedKey.value, editorValue.value);
+      await refreshStorage();
+    } else if (activePanel.value === 'cookies' && selectedCookie.value) {
+      await writeCookie(selectedCookie.value, editorValue.value);
+      await refreshCookies();
+    } else if (selectedRecord.value) {
+      if (selectedRecord.value.editable === false) throw new Error('Non-JSON values are read-only to prevent data loss.');
+      await writeStoreRecord(selectedDatabase.value, selectedStore.value, { ...selectedRecord.value, value: JSON.parse(editorValue.value) });
+      await refreshRecords();
+    }
+    flash('Saved');
+  });
 }
-
 function removeCurrent() {
-  if (!selectedKey.value) return;
-  if (!window.confirm(`Remove “${selectedKey.value}” from ${activeTitle.value}?`)) return;
-  if (activePanel.value === "local" || activePanel.value === "session") currentStorage.value.removeItem(selectedKey.value);
-  if (activePanel.value === "cookies") deleteCookie(selectedKey.value);
-  if (activePanel.value === "indexeddb" && selectedRecord.value) {
-    void deleteStoreRecord(selectedDatabase.value, selectedStore.value, selectedRecord.value.key)
-      .then(refreshRecords)
-      .catch((error) => { databaseError.value = error instanceof Error ? error.message : String(error); });
-    return;
-  }
-  flash("Removed");
-  activePanel.value === "cookies" ? refreshCookies() : refreshStorage();
+  if (!window.confirm(`Remove the selected entry from ${siteOrigin.value}?`)) return;
+  void perform(async () => {
+    if (activePanel.value === 'local' || activePanel.value === 'session') {
+      await removeStorage(activePanel.value, selectedKey.value); await refreshStorage();
+    } else if (activePanel.value === 'cookies' && selectedCookie.value) {
+      await deleteCookie(selectedCookie.value); await refreshCookies();
+    } else if (selectedRecord.value) {
+      await deleteStoreRecord(selectedDatabase.value, selectedStore.value, selectedRecord.value.key); await refreshRecords();
+    }
+    flash('Removed');
+  });
 }
-
 function createEntry() {
-  if (!newKey.value.trim()) return;
-  currentStorage.value.setItem(newKey.value.trim(), "");
-  const created = newKey.value.trim();
-  newKey.value = "";
-  refreshStorage();
-  selectEntry(created);
+  if (!newKey.value) return;
+  void perform(async () => {
+    const created = newKey.value;
+    await writeStorage(activePanel.value, created, '', true);
+    newKey.value = ''; await refreshStorage(); selectEntry(created);
+  });
 }
-
 function createCookie() {
-  if (!cookieName.value.trim()) return;
-  writeCookie(cookieName.value.trim(), cookieValue.value);
-  cookieName.value = "";
-  cookieValue.value = "";
-  refreshCookies();
-  flash("Cookie added");
+  if (!cookieName.value) return;
+  void perform(async () => {
+    const existing = cookies.value.some(cookie => cookie.name === cookieName.value && cookie.path === cookiePath.value && cookie.hostOnly && cookie.domain === siteHost.value && !cookie.partitionKey);
+    if (existing) throw new Error('This cookie already exists. Select it to edit while preserving its attributes.');
+    await addCookie(siteHost.value, cookieName.value, cookieValue.value, cookiePath.value, cookieSecure.value);
+    cookieName.value = ''; cookieValue.value = ''; await refreshCookies(); flash('Cookie added');
+  });
 }
-
 function createRecord() {
+  if (busy.value) return;
   if (!selectedDatabase.value || !selectedStore.value) return;
   const db = databases.value.find((item) => item.name === selectedDatabase.value);
   const connectionStore = db?.stores.includes(selectedStore.value);
   if (!connectionStore) return;
   let value: unknown;
   try { value = JSON.parse(editorValue.value || "{}"); }
-  catch { databaseError.value = "Enter valid JSON for the new record"; return; }
+  catch { operationError.value = "Enter valid JSON for the new record"; return; }
   let key: IDBValidKey | undefined;
   if (newRecordKey.value.trim()) {
     try { key = JSON.parse(newRecordKey.value); }
@@ -239,11 +278,13 @@ function createRecord() {
       newRecordKey.value = "";
       flash("Record added");
     })
-    .catch((error) => { databaseError.value = error instanceof Error ? error.message : String(error); })
+    .catch((error) => { operationError.value = error instanceof Error ? error.message : String(error); })
     .finally(() => { busy.value = false; });
 }
 
 function beginNewRecord() {
+  if (!discardChanges()) return;
+  generation++;
   jsonView.value = false;
   previousRecordKey.value = selectedKey.value;
   isNewRecord.value = true;
@@ -259,6 +300,7 @@ function cancelNewRecord() {
   const previous = records.value.find((record) => record.keyText === previousRecordKey.value);
   if (previous) selectRecord(previous);
   else if (records.value.length) selectRecord(records.value[0]);
+  else { selectedKey.value = ""; editorValue.value = originalValue.value = ""; }
 }
 
 function preview(value: unknown) {
@@ -267,57 +309,81 @@ function preview(value: unknown) {
 }
 
 function refresh() {
+  if (busy.value || !discardChanges()) return;
+  operationError.value = "";
   if (activePanel.value === "local" || activePanel.value === "session") refreshStorage();
   else if (activePanel.value === "cookies") refreshCookies();
   else void refreshDatabases();
 }
 
-async function clearCurrentEnvironment() {
-  if (busy.value) return;
-  const label = activeTitle.value;
-  const confirmation = activePanel.value === "indexeddb"
-    ? `Clear all records from every IndexedDB database on ${siteHost}? This cannot be undone.`
-    : `Clear all ${label} data for ${siteHost}? This cannot be undone.`;
-  if (!window.confirm(confirmation)) return;
-
-  if (activePanel.value === "local" || activePanel.value === "session") {
-    currentStorage.value.clear();
-    refreshStorage();
-    flash(`${label} cleared`);
-  } else if (activePanel.value === "cookies") {
-    const cleared = clearReadableCookies();
-    refreshCookies();
-    flash(`${cleared} readable cookie${cleared === 1 ? "" : "s"} cleared`);
-  } else {
-    busy.value = true;
-    databaseError.value = "";
-    try {
-      const clearedStores = await clearAllIndexedDBRecords();
-      await refreshDatabases();
-      flash(`IndexedDB cleared (${clearedStores} stores)`);
-    } catch (error) {
-      databaseError.value = error instanceof Error ? error.message : String(error);
-    } finally {
-      busy.value = false;
-    }
-  }
+function clearCurrentEnvironment() {
+  const scope = activePanel.value === 'cookies' ? `all paths and partitions matching ${siteHost.value} (including shared parent-domain cookies; other subdomains can be affected)` : `${siteOrigin.value} in the selected frame`;
+  if (!window.confirm(`Clear all ${activeTitle.value} records for ${scope}? This cannot be undone.`)) return;
+  void perform(async () => {
+    if (activePanel.value === 'local' || activePanel.value === 'session') { await clearStorage(activePanel.value); await refreshStorage(); }
+    else if (activePanel.value === 'cookies') { await clearHostCookies(siteHost.value); await refreshCookies(); }
+    else { await clearAllIndexedDBRecords(); recordPage.value = 0; await refreshDatabases(); }
+    flash('Cleared');
+  });
 }
-
-watch(activePanel, () => { searchText.value = ""; });
-watch([selectedDatabase, selectedStore], () => { if (activePanel.value === "indexeddb") void refreshRecords(); });
-onMounted(refreshStorage);
+async function refreshFrameList() {
+  try {
+    frames.value = await listFrames();
+    if (!frames.value.some(frame => frame.frameId === selectedFrame.value)) {
+      selectedFrame.value = frames.value[0]?.frameId ?? 0;
+    }
+    setFrame(selectedFrame.value, siteOrigin.value);
+  } catch (error) { report(error); }
+}
+function resetScope() {
+  generation++; storageGeneration++; cookieGeneration++;
+  selectedKey.value = ''; editorValue.value = originalValue.value = ''; isNewRecord.value = false;
+  databases.value = []; selectedDatabase.value = ''; selectedStore.value = ''; records.value = []; cookies.value = []; localEntries.value = [];
+  localCount.value = sessionCount.value = 0; recordPage.value = 0; hasMore.value = false; operationError.value = ''; notice.value = '';
+}
+async function reloadFrames() {
+  if (busy.value || !discardChanges()) return;
+  resetScope();
+  await refreshFrameList();
+  refresh();
+}
+async function changeFrame(event: Event) {
+  const element = event.target as HTMLSelectElement;
+  if (busy.value || !discardChanges()) { element.value = String(selectedFrame.value); return; }
+  selectedFrame.value = Number(element.value); setFrame(selectedFrame.value, siteOrigin.value);
+  resetScope();
+  refresh();
+}
+function changeDatabase(event: Event) {
+  const element = event.target as HTMLSelectElement;
+  if (busy.value || !discardChanges()) { element.value = selectedDatabase.value; return; }
+  selectedDatabase.value = element.value; selectedStore.value = stores.value[0] ?? ''; recordPage.value = 0;
+  void refreshRecords();
+}
+function changeStore(event: Event) {
+  const element = event.target as HTMLSelectElement;
+  if (busy.value || !discardChanges()) { element.value = selectedStore.value; return; }
+  selectedStore.value = element.value; recordPage.value = 0; void refreshRecords();
+}
+function changePage(delta: number) {
+  if (!discardChanges()) return;
+  recordPage.value += delta; void refreshRecords();
+}
+defineExpose({ canClose: discardChanges });
+watch(activePanel, () => { searchText.value = ''; });
+onMounted(async () => { await refreshFrameList(); refresh(); });
 </script>
 
 <template>
   <div class="storage-shell">
     <aside class="rail">
       <div class="site-card">
-        <div class="site-avatar">{{ siteHost.charAt(0).toUpperCase() || "?" }}</div>
-        <div class="site-copy"><strong>Current site</strong><span :title="siteHost">{{ siteHost }}</span></div>
+        <div class="site-avatar"><UiIcon name="globe" /></div>
+        <div class="site-copy"><strong>Current site</strong><span :title="siteHost">{{ siteOrigin }}</span></div>
       </div>
       <div class="rail-label">BROWSER DATA</div>
       <button v-for="panel in panels" :key="panel.id" class="nav-item" :class="{ active: activePanel === panel.id }" @click="switchPanel(panel.id)">
-        <span class="nav-mark">{{ panel.mark }}</span><span>{{ panel.label }}</span>
+        <span class="nav-mark"><UiIcon :name="panel.id" /></span><span>{{ panel.label }}</span>
         <span v-if="panel.id === 'local'" class="nav-count">{{ localCount }}</span>
         <span v-else-if="panel.id === 'session'" class="nav-count">{{ sessionCount }}</span>
         <span v-else-if="panel.id === 'cookies'" class="nav-count">{{ cookies.length }}</span>
@@ -327,6 +393,8 @@ onMounted(refreshStorage);
     </aside>
 
     <main class="main-panel">
+      <div class="db-toolbar"><span class="mini-label">FRAME / ORIGIN</span><select class="input" :value="selectedFrame" :disabled="busy" @change="changeFrame"><option v-for="frame in frames" :key="frame.frameId" :value="frame.frameId">{{ frame.frameId === 0 ? 'Top' : `Frame ${frame.frameId}` }} · {{ frame.url }}</option></select><button class="action-button" :disabled="busy" @click="reloadFrames">Reload frames</button></div>
+      <div v-if="operationError" class="error-banner" role="alert">{{ operationError }}</div>
       <header class="toolbar">
         <div class="heading"><div class="eyebrow">SITE DATA</div><h1>{{ activeTitle }}</h1></div>
         <div class="toolbar-actions">
@@ -337,10 +405,10 @@ onMounted(refreshStorage);
       </header>
 
       <div v-if="activePanel === 'indexeddb'" class="db-toolbar">
-        <select v-model="selectedDatabase" class="input db-select"><option value="" disabled>Choose database</option><option v-for="option in databaseOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+        <select  :value="selectedDatabase" :disabled="busy" @change="changeDatabase" class="input db-select"><option value="" disabled>Choose database</option><option v-for="option in databaseOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
         <span class="select-divider">/</span>
-        <select v-model="selectedStore" class="input db-select" :disabled="!selectedDatabase"><option value="" disabled>Object store</option><option v-for="option in storeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
-        <span class="count-tag">{{ records.length }} records</span>
+        <select  :value="selectedStore" @change="changeStore" class="input db-select" :disabled="!selectedDatabase"><option value="" disabled>Object store</option><option v-for="option in storeOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select>
+        <span class="count-tag">{{ Math.min(records.length, 500) }} records · page {{ recordPage + 1 }}</span>
       </div>
 
       <div class="content-grid" :class="{ 'cookie-mode': activePanel === 'cookies' }">
@@ -351,41 +419,41 @@ onMounted(refreshStorage);
           <div v-if="activePanel === 'cookies'" class="list-heading"><span>COOKIE</span><span>{{ visibleCookies.length }} visible</span></div>
           <div v-if="activePanel === 'indexeddb'" class="list-heading"><span>PRIMARY KEY</span><span>{{ visibleRecords.length }} visible</span></div>
           <template v-if="activePanel === 'local' || activePanel === 'session'">
-            <button v-for="entry in storageEntries" :key="entry.key" class="data-row" :class="{ selected: selectedKey === entry.key }" @click="selectEntry(entry.key)">
+            <button v-for="entry in storageEntries" :key="entry.key" class="data-row" :class="{ selected: selectedKey === entry.key }" :disabled="busy" @click="discardChanges() && selectEntry(entry.key)">
               <span class="row-name">{{ entry.key }}</span><span class="row-preview">{{ entry.value || 'Empty' }}</span>
             </button>
             <div v-if="!storageEntries.length" class="empty-note">{{ searchText ? 'No matching keys' : 'No keys stored yet' }}</div>
           </template>
           <template v-else-if="activePanel === 'cookies'">
-            <button v-for="cookie in visibleCookies" :key="cookie.name" class="data-row" :class="{ selected: selectedKey === cookie.name }" @click="selectCookie(cookie.name)">
-              <span class="row-name">{{ cookie.name }}</span><span class="row-preview">{{ cookie.value }}</span>
+            <button v-for="cookie in visibleCookies" :key="cookie.id" class="data-row" :class="{ selected: selectedKey === cookie.id }" :disabled="busy" @click="discardChanges() && selectCookie(cookie.id)">
+              <span class="row-name">{{ cookie.name }}</span><span class="row-preview">{{ cookie.domain }} · {{ cookie.path }} · {{ cookie.httpOnly ? 'HttpOnly · ' : '' }}{{ cookie.partitionKey ? 'Partitioned · ' : '' }}{{ cookie.value }}</span>
             </button>
-            <div v-if="!visibleCookies.length" class="empty-note">{{ searchText ? 'No matching cookies' : 'No readable cookies on this site' }}</div>
+            <div v-if="!visibleCookies.length" class="empty-note">{{ searchText ? 'No matching cookies' : 'No cookies match this host' }}</div>
           </template>
           <template v-else>
-            <button v-for="record in visibleRecords" :key="record.keyText" class="data-row" :class="{ selected: selectedKey === record.keyText }" @click="selectRecord(record)">
+            <button v-for="record in visibleRecords" :key="record.keyText" class="data-row" :class="{ selected: selectedKey === record.keyText }" :disabled="busy" @click="discardChanges() && selectRecord(record)">
               <span class="row-name">{{ record.keyText }}</span><span class="row-preview">{{ preview(record.value) }}</span>
             </button>
             <div v-if="!visibleRecords.length" class="empty-note">{{ databases.length ? 'This store is empty' : 'No IndexedDB databases found' }}</div>
-            <div v-if="records.length > 500" class="limit-note">Showing first 500 records</div>
+            <div class="create-row"><button class="action-button" :disabled="recordPage === 0 || busy" @click="changePage(-1)">Previous</button><button class="action-button" :disabled="!hasMore || busy" @click="changePage(1)">Next 500</button></div><div class="limit-note">Search applies to this page of records</div>
           </template>
           <div v-if="activePanel === 'local' || activePanel === 'session'" class="create-row">
             <input v-model="newKey" class="input" placeholder="New key name" @keyup.enter="createEntry" />
-            <button class="action-button primary" :disabled="!newKey.trim()" @click="createEntry">Add</button>
+            <button class="action-button primary" :disabled="busy || !newKey" @click="createEntry">Add</button>
           </div>
           <div v-if="activePanel === 'cookies'" class="cookie-create">
             <div class="mini-label">ADD COOKIE</div>
             <input v-model="cookieName" class="input" placeholder="Name" />
-            <input v-model="cookieValue" class="input" placeholder="Value" @keyup.enter="createCookie" />
-            <button class="action-button primary" :disabled="!cookieName.trim()" @click="createCookie">Add cookie</button>
+            <input v-model="cookiePath" class="input" placeholder="Path, e.g. / or /api" /><input v-model="cookieValue" class="input" placeholder="Value" @keyup.enter="createCookie" />
+            <button class="action-button primary" :disabled="busy || !cookieName" @click="createCookie">Add cookie</button>
           </div>
-          <div v-if="activePanel === 'indexeddb' && selectedStore && !isNewRecord" class="add-record"><button class="action-button primary" @click="beginNewRecord">＋ New record</button></div>
+          <div v-if="activePanel === 'indexeddb' && selectedStore && !isNewRecord" class="add-record"><button class="action-button primary" :disabled="busy" @click="beginNewRecord">＋ New record</button></div>
         </section>
 
         <section class="editor-pane">
           <template v-if="activePanel === 'local' || activePanel === 'session'">
-            <div v-if="selectedKey" class="editor-content">
-              <div class="editor-top"><div><div class="mini-label">{{ activePanel === 'local' ? 'LOCAL STORAGE KEY' : 'SESSION STORAGE KEY' }}</div><h2>{{ selectedKey }}</h2></div><div class="editor-actions"><button class="action-button danger plain" @click="removeCurrent">Remove</button><button v-if="!jsonView" class="action-button primary" :disabled="!hasUnsavedChanges" @click="saveCurrent">Save changes</button></div></div>
+            <div v-if="localEntries.some(entry => entry.key === selectedKey)" class="editor-content">
+              <div class="editor-top"><div><div class="mini-label">{{ activePanel === 'local' ? 'LOCAL STORAGE KEY' : 'SESSION STORAGE KEY' }}</div><h2>{{ selectedKey }}</h2></div><div class="editor-actions"><button class="action-button danger plain" :disabled="busy" @click="removeCurrent">Remove</button><button v-if="!jsonView" class="action-button primary" :disabled="busy || !hasUnsavedChanges" @click="saveCurrent">Save changes</button></div></div>
               <div class="editor-body"><div class="field-label">VALUE <span>Plain text</span><button v-if="canFormatJson" class="format-toggle" @click="jsonView = !jsonView">{{ jsonView ? 'Edit raw value' : 'Format JSON' }}</button></div><pre v-if="jsonView" class="json-preview">{{ formattedJson }}</pre><textarea v-else v-model="editorValue" class="input value-editor" placeholder="Enter a value" rows="14" /></div>
               <div class="editor-hint">Changes apply to <strong>{{ siteHost }}</strong> immediately after saving.</div>
             </div>
@@ -393,26 +461,28 @@ onMounted(refreshStorage);
           </template>
           <template v-else-if="activePanel === 'cookies'">
             <div v-if="selectedCookie" class="editor-content">
-              <div class="editor-top"><div><div class="mini-label">COOKIE VALUE</div><h2>{{ selectedCookie.name }}</h2></div><div class="editor-actions"><button class="action-button danger plain" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="!hasUnsavedChanges" @click="saveCurrent">Save changes</button></div></div>
-              <div class="cookie-facts"><span><b>Host</b>{{ siteHost }}</span><span><b>Scope</b>Script-readable</span><span><b>Write path</b>/</span></div>
-              <div class="editor-body"><div class="field-label">VALUE <span>Visible cookies only</span></div><textarea v-model="editorValue" class="input value-editor" rows="12" /></div>
-              <div class="editor-hint">HttpOnly cookies and cookies scoped to other paths are unavailable in this page context.</div>
+              <div class="editor-top"><div><div class="mini-label">COOKIE VALUE</div><h2>{{ selectedCookie.name }}</h2></div><div class="editor-actions"><button class="action-button danger plain" :disabled="busy" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="busy || !hasUnsavedChanges" @click="saveCurrent">Save changes</button></div></div>
+              <div class="cookie-facts"><span><b>Domain</b>{{ selectedCookie.domain }}</span><span><b>Scope</b>{{ selectedCookie.httpOnly ? 'HttpOnly' : 'Script-readable' }} · {{ selectedCookie.secure ? 'Secure' : 'Non-secure' }}</span><span><b>Path</b>{{ selectedCookie.path }}</span></div>
+              <div class="cookie-facts"><span><b>SameSite</b>{{ selectedCookie.sameSite }}</span><span><b>Expiry</b>{{ selectedCookie.session ? 'Session' : new Date((selectedCookie.expirationDate ?? 0) * 1000).toLocaleString() }}</span><span><b>Store</b>{{ selectedCookie.storeId }}</span></div>
+              <div v-if="selectedCookie.partitionKey" class="editor-hint">Partition: {{ selectedCookie.partitionKey.topLevelSite }} · Cross-site ancestor: {{ selectedCookie.partitionKey.hasCrossSiteAncestor }}</div>
+              <div class="editor-body"><div class="field-label">VALUE <span>Raw cookie value</span></div><textarea v-model="editorValue" class="input value-editor" rows="12" /></div>
+              <div class="editor-hint">Domain, path, expiry, HttpOnly, Secure, SameSite and partition are preserved on save. Shared parent-domain cookies affect multiple subdomains.</div>
             </div>
             <div v-else class="empty-state">Select a cookie to inspect its value</div>
           </template>
           <template v-else>
-            <div v-if="databaseError" class="error-banner">{{ databaseError }}</div>
+
             <div v-if="selectedRecord || isNewRecord" class="editor-content">
-              <div class="editor-top"><div><div class="mini-label">{{ selectedStore }} · {{ isNewRecord ? 'NEW RECORD' : 'RECORD' }}</div><h2 class="key-heading">{{ isNewRecord ? 'Add a record' : selectedRecord?.keyText }}</h2></div><div class="editor-actions"><template v-if="isNewRecord"><button class="action-button plain" @click="cancelNewRecord">Cancel</button><button class="action-button primary" :disabled="busy" @click="createRecord">Add record</button></template><template v-else-if="!jsonView"><button class="action-button danger plain" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="!hasUnsavedChanges" @click="saveCurrent">Save JSON</button></template></div></div>
+              <div class="editor-top"><div><div class="mini-label">{{ selectedStore }} · {{ isNewRecord ? 'NEW RECORD' : 'RECORD' }}</div><h2 class="key-heading">{{ isNewRecord ? 'Add a record' : selectedRecord?.keyText }}</h2></div><div class="editor-actions"><template v-if="isNewRecord"><button class="action-button plain" @click="cancelNewRecord">Cancel</button><button class="action-button primary" :disabled="busy" @click="createRecord">Add record</button></template><template v-else-if="!jsonView"><button class="action-button danger plain" :disabled="busy" @click="removeCurrent">Remove</button><button class="action-button primary" :disabled="busy || !hasUnsavedChanges || selectedRecord?.editable === false" @click="saveCurrent">Save JSON</button></template></div></div>
               <div v-if="isNewRecord" class="key-input"><label for="record-key">Primary key <span>Optional for auto-increment stores</span></label><input id="record-key" v-model="newRecordKey" class="input" placeholder="Leave blank to auto-generate" /></div>
-              <div class="editor-body"><div class="field-label">VALUE <span>JSON / structured clone</span><button v-if="canFormatJson && !isNewRecord" class="format-toggle" @click="jsonView = !jsonView">{{ jsonView ? 'Edit raw value' : 'Format JSON' }}</button></div><pre v-if="jsonView" class="json-preview">{{ formattedJson }}</pre><textarea v-else v-model="editorValue" class="input value-editor code-editor" rows="15" /></div>
-              <div class="editor-hint">{{ isNewRecord ? 'Values must be valid JSON. ' : 'Record changes are written directly to ' }}<strong>{{ selectedDatabase }} / {{ selectedStore }}</strong>.</div>
+              <div class="editor-body"><div class="field-label">VALUE <span>JSON; other types read-only</span><button v-if="canFormatJson && !isNewRecord" class="format-toggle" @click="jsonView = !jsonView">{{ jsonView ? 'Edit raw value' : 'Format JSON' }}</button></div><pre v-if="jsonView" class="json-preview">{{ formattedJson }}</pre><textarea v-else v-model="editorValue" :readonly="selectedRecord?.editable === false && !isNewRecord" class="input value-editor code-editor" rows="15" /></div>
+              <div class="editor-hint">{{ selectedRecord?.editable === false && !isNewRecord ? 'Read-only typed preview; special values cannot be saved through JSON. ' : isNewRecord ? 'Values must be valid JSON. ' : 'Record changes are written directly to ' }}<strong>{{ selectedDatabase }} / {{ selectedStore }}</strong>.</div>
             </div>
             <div v-else class="db-empty"><div class="empty-state">{{ databases.length ? 'Select a record or add one to this store' : 'This site has no IndexedDB databases' }}</div><div v-if="!hasIndexedDB" class="editor-hint">This browser does not expose database enumeration. Open a site with IndexedDB data to browse it.</div></div>
           </template>
         </section>
       </div>
-      <footer class="statusbar"><span><i class="status-dot"></i> Connected to {{ siteHost }}</span><span v-if="hasUnsavedChanges" class="unsaved-notice">Unsaved changes</span><span v-else-if="notice" class="saved-notice">{{ notice }}</span><span v-else>Changes stay in this browser profile</span></footer>
+      <footer class="statusbar"><span><i class="status-dot"></i> Connected to {{ siteOrigin }}</span><span v-if="hasUnsavedChanges" class="unsaved-notice">Unsaved changes</span><span v-else-if="notice" class="saved-notice">{{ notice }}</span><span v-else>Changes stay in this browser profile</span></footer>
     </main>
   </div>
 </template>

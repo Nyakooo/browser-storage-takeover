@@ -1,63 +1,46 @@
-import {
-    ShellComponentContainer,
-    NoticeKey,
-} from "@takeover/shared-utils";
+import { ShellComponentContainer, NoticeKey } from '@takeover/shared-utils';
 
-const script = document.createElement("script");
-script.setAttribute("type", "module");
-script.setAttribute("src", chrome.runtime.getURL("document.js"));
-
-const componentContainer = document.createElement('div')
-componentContainer.id = ShellComponentContainer
-
-const componentLink = document.createElement('link')
-componentLink.rel = 'stylesheet'
-componentLink.href = chrome.runtime.getURL("components/style.css")
-const components = document.createElement("script");
-components.setAttribute("src", chrome.runtime.getURL("components/index.iife.js"));
-
-let documentReady = false;
-let componentsReady = false;
-let pendingOpenRequests = 0;
-
-function openModal() {
-    if (!documentReady || !componentsReady) {
-        pendingOpenRequests += 1;
-        return;
+let componentMount: HTMLDivElement | undefined;
+let componentHost: HTMLDivElement | undefined;
+chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+  if (message.type === NoticeKey.COMMAND_TRIGGERING && message.to === 'content') {
+    if (!componentHost?.isConnected) {
+      const host = document.createElement('div');
+      componentHost = host;
+      host.id = ShellComponentContainer;
+      host.style.cssText = 'all:initial !important;position:fixed !important;inset:0 !important;z-index:2147483647 !important;pointer-events:none !important;';
+      const shadow = host.attachShadow({ mode: 'closed' });
+      const style = document.createElement('link');
+      style.rel = 'stylesheet';
+      style.href = chrome.runtime.getURL('components/style.css');
+      const mount = document.createElement('div');
+      componentMount = mount;
+      mount.id = 'app';
+      mount.style.pointerEvents = 'auto';
+      shadow.append(style, mount);
+      document.documentElement.append(host);
     }
-
-    window.dispatchEvent(
-        new CustomEvent(NoticeKey.COMMAND_TRIGGERING, {
-            detail: { to: 'document', value: "open_modal" },
-        })
-    );
-}
-
-// Register immediately so a toolbar click during page startup is not lost.
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === NoticeKey.COMMAND_TRIGGERING && msg.to === "content") {
-        openModal();
-    }
+    window.__component__.register('modal', componentMount);
+    respond({ ok: true });
+  }
 });
 
-function flushOpenRequests() {
-    if (!documentReady || !componentsReady) return;
-    while (pendingOpenRequests > 0) {
-        pendingOpenRequests -= 1;
-        openModal();
-    }
-}
-
-script.addEventListener('load', () => {
-    documentReady = true;
-    flushOpenRequests();
-}, { once: true });
-components.addEventListener('load', () => {
-    componentsReady = true;
-    flushOpenRequests();
-}, { once: true });
-
-document.documentElement.appendChild(script);
-document.documentElement.appendChild(componentLink);
-document.documentElement.appendChild(componentContainer);
-document.documentElement.appendChild(components);
+import * as data from '../../shell-components/src/modal/page-data';
+const operations: Record<string, (...args: any[]) => unknown> = {
+  readStorage: data.readStorage, writeStorage: data.writeStorage, removeStorage: data.removeStorage,
+  clearStorage: data.clearStorage, listDatabases: data.listDatabases, readStore: data.readStore,
+  writeStoreRecord: data.writeStoreRecord, addStoreRecord: data.addStoreRecord,
+  deleteStoreRecord: data.deleteStoreRecord, clearAllIndexedDBRecords: data.clearAllIndexedDBRecords,
+};
+chrome.runtime.onMessage.addListener((message, _sender, respond) => {
+  if (message.action?.startsWith('data:')) {
+    if (message.origin !== location.origin) { respond({ ok: false, error: 'Frame origin changed; refresh the frame list.' }); return; }
+    const operation = operations[message.action.slice(5)];
+    if (!operation) return;
+    Promise.resolve().then(() => operation(...message.args)).then(
+      value => respond({ ok: true, value }),
+      error => respond({ ok: false, error: String(error) }),
+    );
+    return true;
+  }
+});

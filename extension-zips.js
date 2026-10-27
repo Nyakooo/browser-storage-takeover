@@ -10,9 +10,7 @@ const PKG = require('./package.json')
 const INCLUDE_GLOBS = [
   'components/**',
   'icons/**',
-  'render_devtools/**',
   'content.js',
-  'document.js',
   'manifest.json',
   'service_worker.js',
 ]
@@ -31,6 +29,7 @@ function bytesToSize(bytes) {
 
   async function writeZip(fileName, packageDir) {
     // create a file to stream archive data to.
+    fs.mkdirSync(path.join(__dirname, 'zip'), { recursive: true })
     const output = fs.createWriteStream(path.join(__dirname, 'zip', fileName))
     const archive = new archiver.ZipArchive({
       zlib: { level: 9 }, // Sets the compression level.

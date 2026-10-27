@@ -9,11 +9,11 @@ const ComponentMap = {
 
 type ComponentName = keyof typeof ComponentMap
 
-export function register(name: ComponentName) {
+export function register(name: ComponentName, container?: Element) {
     const target = ComponentMap[name]
-    registerEl(target)
+    registerEl(target, container)
 }
 
-if (window.__DEV__) {
+if (import.meta.env.DEV) {
     register('modal')
 }

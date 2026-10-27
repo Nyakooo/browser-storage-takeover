@@ -15,14 +15,17 @@
     ],
     "skipLibCheck": true,
     "noEmit": true,
-    "types": []
+    "types": [
+      "chrome"
+    ]
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",
     "src/**/*.tsx",
-    "src/**/*.vue"
-, "global.d.ts"  ],
+    "src/**/*.vue",
+    "global.d.ts"
+  ],
   "references": [
     {
       "path": "./tsconfig.node.json"
